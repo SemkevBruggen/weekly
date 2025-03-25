@@ -109,7 +109,10 @@ async def main():
             print("❌ Geen resultaten gevonden, mogelijk een scraping-fout!")
             return
 
-        json_output = {"data": combined_results}
+        json_output = {
+            "type": "attributen",
+            "data": combined_results
+        }
 
         # ✅ Fix: Sla results.json op voordat de webhook wordt aangeroepen
         with open("results.json", "w") as f:
