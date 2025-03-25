@@ -9,7 +9,6 @@ from bs4 import BeautifulSoup
 from collections import defaultdict
 from io import BytesIO
 from PIL import Image, UnidentifiedImageError
-from urls import urls
 
 # ✅ Google Sheet Webhook URL
 URLS_WEBHOOK = "https://script.google.com/macros/s/AKfycbxHw1J2asNBEdd5LHZj2LqTjwKVsjKufYhMSSeq6nRhY65mTVeuDai_oSt_lWRB_MkE/exec"  # Webhook voor het ophalen van URLs
