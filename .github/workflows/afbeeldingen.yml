@@ -26,7 +26,7 @@ jobs:
         run: pip list
 
       - name: 🏃 Run Image Check Script
-        run: python afbeelding.py  # ✅ Zorg ervoor dat dit het juiste scriptbestand is
+        run: python afbeeldingen.py  # ✅ Zorg ervoor dat dit het juiste scriptbestand is
 
       - name: ✅ Success message
         if: success()
