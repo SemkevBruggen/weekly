@@ -42,4 +42,4 @@ jobs:
       - name: 📡 Verstuur resultaten naar Google Sheets webhook
         run: |
           echo "🚀 Verzenden van resultaten naar webhook..."
-          curl -X POST -H "Content-Type: application/json" -d @results.json "https://script.google.com/macros/s/AKfycbzSsuTXEUzlJcfrQbTmIk2ULTEc1iwKqd849Qpsz0rl8Gn-sEywnb7CMcAhFig3Mfrg/exec"
+          curl -X POST -H "Content-Type: application/json" -d @results.json "https://script.google.com/macros/s/AKfycbw2_kO6zxk8VrWQwZ7fzpBWTetJpdeLqXGztYgo7TjEq1gpyTy3LYy4FwUvpxSfzWaQ/exec"
