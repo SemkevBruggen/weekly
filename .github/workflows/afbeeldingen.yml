@@ -1,0 +1,37 @@
+name: Image Check Automation
+
+on:
+  workflow_dispatch:  # ✅ Handmatige uitvoering via GitHub Actions UI
+
+jobs:
+  run-image-check:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
+
+      - name: 🛠️ Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.12'
+
+      - name: 📦 Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install --no-cache-dir requests beautifulsoup4 playwright opencv-python numpy pillow
+          playwright install --with-deps chromium
+      
+      - name: 📋 Controleer geïnstalleerde pakketten
+        run: pip list
+
+      - name: 🏃 Run Image Check Script
+        run: python afbeelding.py  # ✅ Zorg ervoor dat dit het juiste scriptbestand is
+
+      - name: ✅ Success message
+        if: success()
+        run: echo "Script is succesvol uitgevoerd!"
+
+      - name: ❌ Failure message
+        if: failure()
+        run: echo "Er is een fout opgetreden bij het uitvoeren van het script."
