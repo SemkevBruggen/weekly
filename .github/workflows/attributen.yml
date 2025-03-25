@@ -29,7 +29,7 @@ jobs:
       - name: 🔄 Haal URLs op via webhook
         run: |
           echo "🚀 Ophalen van URLs via webhook..."
-          curl -s "https://script.google.com/macros/s/AKfycbxHw1J2asNBEdd5LHZj2LqTjwKVsjKufYhMSSeq6nRhY65mTVeuDai_oSt_lWRB_MkE/exec" -o urls.json
+          curl -s "https://script.google.com/macros/s/AKfycbzlpZQHlOl-DcDclWEnVWl28PGfqvGPzeXDOFht_GO_U-3k_vHlh-0VB09mB9QEcvc/exec" -o urls.json
           cat urls.json  # Print de opgehaalde URLs voor debugging
 
       - name: 📋 Controleer of urls.json correct is opgehaald
@@ -42,4 +42,4 @@ jobs:
       - name: 📡 Verstuur resultaten naar Google Sheets webhook
         run: |
           echo "🚀 Verzenden van resultaten naar webhook..."
-          curl -X POST -H "Content-Type: application/json" -d @results.json "https://script.google.com/macros/s/AKfycbw2_kO6zxk8VrWQwZ7fzpBWTetJpdeLqXGztYgo7TjEq1gpyTy3LYy4FwUvpxSfzWaQ/exec"
+          curl -X POST -H "Content-Type: application/json" -d @results.json "https://script.google.com/macros/s/AKfycbzlpZQHlOl-DcDclWEnVWl28PGfqvGPzeXDOFht_GO_U-3k_vHlh-0VB09mB9QEcvc/exec"
