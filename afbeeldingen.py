@@ -4,22 +4,23 @@ import cv2
 import numpy as np
 import urllib.parse
 import json
+import aiohttp
 from playwright.async_api import async_playwright
 from bs4 import BeautifulSoup
 from collections import defaultdict
 from io import BytesIO
 from PIL import Image, UnidentifiedImageError
 
-# ✅ Google Sheet Webhook URL
-URLS_WEBHOOK = "https://script.google.com/macros/s/AKfycbxHw1J2asNBEdd5LHZj2LqTjwKVsjKufYhMSSeq6nRhY65mTVeuDai_oSt_lWRB_MkE/exec"  # Webhook voor het ophalen van URLs
+# ✅ Webhooks
+URLS_WEBHOOK = "https://script.google.com/macros/s/AKfycbxHw1J2asNBEdd5LHZj2LqTjwKVsjKufYhMSSeq6nRhY65mTVeuDai_oSt_lWRB_MkE/exec"
 GOOGLE_SHEET_WEBHOOK = "https://script.google.com/macros/s/AKfycbxk3E7nQq4CzUl4axl3A695xUjccgovMOkwlQicwVaHxiDIyF2GhlviIzBddYqRlEUj/exec"
 
 STANDARD_SIZE = (256, 256)
 PLACEHOLDER_KEYWORDS = ["placeholder", "small_image", "default_image", "no_image"]
 EXCLUDED_DOMAINS = ["storage.googleapis.com"]
 
-# ✅ Beperk het aantal gelijktijdige Playwright-verzoeken
-semaphore = asyncio.Semaphore(5)  # Maximaal 5 tegelijk
+# ✅ Maximaal 5 gelijktijdige Playwright-sessies
+semaphore = asyncio.Semaphore(5)
 
 async def get_urls_from_webhook():
     """Haalt de URLs op via de webhook van Google Sheets."""
@@ -60,7 +61,7 @@ async def analyze_images_on_page(page_url, website_domain):
 
         def get_image_array(url):
             try:
-                response = requests.get(url, stream=True)
+                response = requests.get(url, stream=True, timeout=10)
                 response.raise_for_status()
                 if any(keyword in url.lower() for keyword in PLACEHOLDER_KEYWORDS):
                     placeholder_images.add(url)
@@ -114,8 +115,16 @@ async def analyze_images_on_page(page_url, website_domain):
             print(f"✅ Geen problemen gevonden op {page_url}, niet verzonden naar Google Sheets.")
 
 async def main():
-    """Loop door alle URL's uit de dictionary en stuur resultaten naar Google Sheets."""
-    tasks = [analyze_images_on_page(page_url, website_domain) for website_domain, url_list in urls_by_domain.items() for page_url in url_list]
+    """Doorloop alle opgehaalde URLs en analyseer de afbeeldingen."""
+    urls = await get_urls_from_webhook()
+    tasks = []
+    for full_url in urls:
+        parsed = urllib.parse.urlparse(full_url)
+        domain = parsed.netloc
+        tasks.append(analyze_images_on_page(full_url, domain))
+
     await asyncio.gather(*tasks)
 
-asyncio.run(main())
+# ✅ Start het script
+if __name__ == "__main__":
+    asyncio.run(main())
