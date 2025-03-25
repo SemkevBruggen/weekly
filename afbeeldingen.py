@@ -13,7 +13,7 @@ from PIL import Image, UnidentifiedImageError
 
 # ✅ Webhooks
 URLS_WEBHOOK = "https://script.google.com/macros/s/AKfycbxHw1J2asNBEdd5LHZj2LqTjwKVsjKufYhMSSeq6nRhY65mTVeuDai_oSt_lWRB_MkE/exec"
-GOOGLE_SHEET_WEBHOOK = "https://script.google.com/macros/s/AKfycbx4UgIpTGFmFaEsxsWN8pJdNaqkhrMVGzPTKmsf18SfXPdWSjDv00jlM800uZKwDJsR/exec"
+GOOGLE_SHEET_WEBHOOK = "https://script.google.com/macros/s/AKfycbzlpZQHlOl-DcDclWEnVWl28PGfqvGPzeXDOFht_GO_U-3k_vHlh-0VB09mB9QEcvc/exec"
 
 # Instellingen
 STANDARD_SIZE = (256, 256)
