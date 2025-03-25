@@ -38,6 +38,13 @@ async def fetch_image(session, image_url):
         return await response.read()
 
 async def is_blurry(image_url, session):
+    # 🔥 Uitsluiten op basis van domein of keyword
+    if "paypal" in image_url.lower() or "storage.googleapis.com" in image_url:
+        return {
+            "image_url": image_url,
+            "excluded": True
+        }
+
     try:
         image_data = await fetch_image(session, image_url)
         img_array = np.frombuffer(image_data, dtype=np.uint8)
@@ -131,7 +138,7 @@ async def analyze_images_on_page(page_url, website_domain, session):
 
         blurry_results = await asyncio.gather(*blur_tasks)
 
-        if broken_images or placeholder_images or duplicates or any('Blurry' in r.get('sharpness', '') or 'Too Small' in r.get('resolution_check', '') for r in blurry_results):
+        if broken_images or placeholder_images or duplicates or any('Blurry' in r.get('sharpness', '') or 'Too Small' in r.get('resolution_check', '') for r in blurry_results if not r.get("excluded")):
             result_data = {
                 "url": page_url,
                 "broken": ", ".join(broken_images) if broken_images else "Geen",
