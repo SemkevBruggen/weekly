@@ -19,7 +19,7 @@ jobs:
       - name: 📦 Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install --no-cache-dir requests beautifulsoup4 playwright opencv-python numpy pillow
+          pip install --no-cache-dir requests beautifulsoup4 aiohttp playwright opencv-python numpy pillow
           playwright install --with-deps chromium
       
       - name: 📋 Controleer geïnstalleerde pakketten
