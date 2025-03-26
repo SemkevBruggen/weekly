@@ -10,6 +10,7 @@ from bs4 import BeautifulSoup
 from collections import defaultdict
 from io import BytesIO
 from PIL import Image, UnidentifiedImageError
+import sys
 
 # ✅ Webhooks
 URLS_WEBHOOK = "https://script.google.com/macros/s/AKfycbxHw1J2asNBEdd5LHZj2LqTjwKVsjKufYhMSSeq6nRhY65mTVeuDai_oSt_lWRB_MkE/exec"
@@ -38,7 +39,6 @@ async def fetch_image(session, image_url):
         return await response.read()
 
 async def is_blurry(image_url, session):
-    # 🔥 Uitsluiten op basis van domein of keyword
     if "paypal" in image_url.lower() or "storage.googleapis.com" in image_url:
         return {
             "image_url": image_url,
@@ -79,6 +79,7 @@ async def analyze_images_on_page(page_url, website_domain, session):
 
             content = await page.content()
             image_elements = await page.query_selector_all('img')
+            await page.close()
             await browser.close()
 
         soup = BeautifulSoup(content, "html.parser")
@@ -138,7 +139,10 @@ async def analyze_images_on_page(page_url, website_domain, session):
 
         blurry_results = await asyncio.gather(*blur_tasks)
 
-        if broken_images or placeholder_images or duplicates or any('Blurry' in r.get('sharpness', '') or 'Too Small' in r.get('resolution_check', '') for r in blurry_results if not r.get("excluded")):
+        if broken_images or placeholder_images or duplicates or any(
+            'Blurry' in r.get('sharpness', '') or 'Too Small' in r.get('resolution_check', '')
+            for r in blurry_results if not r.get("excluded")
+        ):
             result_data = {
                 "url": page_url,
                 "broken": ", ".join(broken_images) if broken_images else "Geen",
@@ -165,5 +169,12 @@ async def main():
             tasks.append(analyze_images_on_page(full_url, domain, session))
         await asyncio.gather(*tasks)
 
+# ✅ Nette afsluiting
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+        print("✅ Script succesvol afgerond.")
+        sys.exit(0)
+    except Exception as e:
+        print(f"❌ Fout tijdens uitvoeren: {e}")
+        sys.exit(1)
