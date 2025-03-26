@@ -1,11 +1,14 @@
 name: Attributen workflow
 
 on:
-  workflow_dispatch:  # Handmatig starten mogelijk
+  workflow_dispatch:        # ✅ Handmatig starten mogelijk via GitHub
+  schedule:
+    - cron: '0 6 * * 1'     # ✅ Elke maandag om 06:00 UTC (07:00 NL-tijd in winter)
 
 jobs:
   scrape:
     runs-on: ubuntu-latest
+
     steps:
       - name: 🚀 Haal repository op
         uses: actions/checkout@v4
@@ -23,7 +26,6 @@ jobs:
       
       - name: 📋 Controleer geïnstalleerde pakketten
         run: pip list
-
 
       # ✅ Haal URLs op via webhook vóór het uitvoeren van de scraper
       - name: 🔄 Haal URLs op via webhook
