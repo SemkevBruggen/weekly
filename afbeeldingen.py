@@ -14,7 +14,7 @@ import sys
 
 # ✅ Webhooks
 URLS_WEBHOOK = "https://script.google.com/macros/s/AKfycbxHw1J2asNBEdd5LHZj2LqTjwKVsjKufYhMSSeq6nRhY65mTVeuDai_oSt_lWRB_MkE/exec"
-GOOGLE_SHEET_WEBHOOK = "https://script.google.com/macros/s/AKfycbwKFvXFPPdCwmxtHC0TbQbTQ6aJrTUg8bkK86L8psPUji7rVgxK95HQtziNE6H2bMm_/exec"
+GOOGLE_SHEET_WEBHOOK = "https://script.google.com/macros/s/AKfycbz9xgvDS-MU6bZ7SxGibFq-DeEJr8WUVteD6WiEUEuQ8W5TDjXFrRAhmT0x19kSqZVz/exec"
 
 # Instellingen
 STANDARD_SIZE = (256, 256)
