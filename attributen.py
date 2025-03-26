@@ -75,7 +75,11 @@ async def scrape_page(session, url):
         usp_container = soup.find("div", class_="mt-6 w-full space-y-1")
         has_usp = usp_container is not None and usp_container.find("span") is not None
 
-        vragen_en_antwoorden = soup.find("div", id="vragen-en-antwoorden") is not None
+        # FAQ op basis van ID óf specifieke class herkennen
+        vragen_en_antwoorden = (
+            soup.find("div", id="vragen-en-antwoorden") is not None or
+            soup.find("div", class_="w-full h-fit sticky top-0 lg:border lg:border-gray-ultralight rounded-xl lg:p-5 lg:min-h-[350px]") is not None
+        )
 
         return {
             "url": url,
