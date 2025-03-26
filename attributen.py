@@ -7,7 +7,7 @@ from playwright.async_api import async_playwright
 
 # ✅ Webhooks
 URLS_WEBHOOK = "https://script.google.com/macros/s/AKfycbxHw1J2asNBEdd5LHZj2LqTjwKVsjKufYhMSSeq6nRhY65mTVeuDai_oSt_lWRB_MkE/exec"  # Webhook voor het ophalen van URLs
-RESULTS_WEBHOOK = "https://script.google.com/macros/s/AKfycbyOvqeHEr5ekB_FZmw5nmMHpVHqMYx4jedwakk8p1ml8fu9CN7tbH1Y8TNZNftzEdp4/exec"  # Webhook voor het verzenden van resultaten
+RESULTS_WEBHOOK = "https://script.google.com/macros/s/AKfycbzzKn65Q-9I1tRv07oHh4e8fsxPJBssrKhwbXyxTxKuvXQouXOy0YZrxDfAvt1Gm_PH/exec"  # Webhook voor het verzenden van resultaten
 
 # ✅ Beperk het aantal gelijktijdige Playwright-verzoeken
 semaphore = asyncio.Semaphore(5)  # Maximaal 5 tegelijk
