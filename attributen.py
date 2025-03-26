@@ -13,27 +13,14 @@ RESULTS_WEBHOOK = "https://script.google.com/macros/s/AKfycbxz6qNGhuMgrKSnI2gbvM
 semaphore = asyncio.Semaphore(5)  # Maximaal 5 tegelijk
 
 async def get_urls_from_webhook():
-    """Haalt de URLs op via de webhook van Google Sheets."""
     async with aiohttp.ClientSession() as session:
         async with session.get(URLS_WEBHOOK) as response:
             data = await response.json()
-            print("🔍 Opgehaalde URLs:", json.dumps(data, indent=2))  # Debug print
+            print("🔍 Opgehaalde URLs:", json.dumps(data, indent=2))
             return data.get("urls", [])
 
-async def fetch(session, url):
-    """Haalt de HTML op en controleert of een bepaalde div aanwezig is."""
-    try:
-        async with session.get(url, timeout=10) as response:
-            html = await response.text()
-            soup = BeautifulSoup(html, 'html.parser')
-            has_div = bool(soup.find("div", id="configurator-app"))
-            return {"url": url, "configurator_app_present": has_div}
-    except Exception as e:
-        return {"url": url, "error": str(e)}
-
 async def scrape_page(session, url):
-    """Laadt een pagina met Playwright en controleert de prijs, USP's en de Vragen & Antwoorden-sectie."""
-    async with semaphore:  # Wacht tot er een plek vrij is
+    async with semaphore:
         async with async_playwright() as p:
             browser = await p.chromium.launch(headless=True)
             page = await browser.new_page()
@@ -47,7 +34,8 @@ async def scrape_page(session, url):
                     "url": url,
                     "is_target_price": False,
                     "has_usp": False,
-                    "has_faq": False
+                    "has_faq": False,
+                    "configurator_app_present": False
                 }
 
             await page.wait_for_timeout(3000)
@@ -58,6 +46,11 @@ async def scrape_page(session, url):
                 print(f"⚠️ USP-container niet gevonden op {url}")
 
             content = await page.content()
+
+            # ✅ Check configurator-app met Playwright direct
+            configurator = await page.query_selector("#configurator-app")
+            has_configurator_app = configurator is not None
+
             await browser.close()
 
         soup = BeautifulSoup(content, "html.parser")
@@ -75,7 +68,6 @@ async def scrape_page(session, url):
         usp_container = soup.find("div", class_="mt-6 w-full space-y-1")
         has_usp = usp_container is not None and usp_container.find("span") is not None
 
-        # FAQ op basis van ID óf specifieke class herkennen
         vragen_en_antwoorden = (
             soup.find("div", id="vragen-en-antwoorden") is not None or
             soup.find("div", class_="w-full h-fit sticky top-0 lg:border lg:border-gray-ultralight rounded-xl lg:p-5 lg:min-h-[350px]") is not None
@@ -85,11 +77,11 @@ async def scrape_page(session, url):
             "url": url,
             "is_target_price": is_target_price,
             "has_usp": has_usp,
-            "has_faq": vragen_en_antwoorden
+            "has_faq": vragen_en_antwoorden,
+            "configurator_app_present": has_configurator_app
         }
 
 async def main():
-    """Haalt URLs op via webhook, scrapet en stuurt resultaten naar Google Sheets."""
     urls = await get_urls_from_webhook()
     if not urls:
         print("❌ Geen URLs opgehaald!")
@@ -97,39 +89,22 @@ async def main():
 
     async with aiohttp.ClientSession() as session:
         tasks = [scrape_page(session, url) for url in urls]
-        playwright_results = await asyncio.gather(*tasks)
-
-        # ✅ Voeg BeautifulSoup-gebaseerde scraping toe
-        tasks_bs = [fetch(session, url) for url in urls]
-        bs_results = await asyncio.gather(*tasks_bs)
-
-        # ✅ Combineer resultaten
-        combined_results = []
-        for p_result, bs_result in zip(playwright_results, bs_results):
-            combined_entry = {**p_result, **bs_result}
-            combined_results.append(combined_entry)
-
-        if not combined_results:
-            print("❌ Geen resultaten gevonden, mogelijk een scraping-fout!")
-            return
+        results = await asyncio.gather(*tasks)
 
         json_output = {
             "type": "attributen",
-            "data": combined_results
+            "data": results
         }
 
-        # ✅ Fix: Sla results.json op voordat de webhook wordt aangeroepen
         with open("results.json", "w") as f:
             json.dump(json_output, f, indent=2)
 
-        # ✅ Controleer of results.json correct is opgeslagen
         if not os.path.exists("results.json"):
             print("❌ results.json is niet gegenereerd! Controleer scraper.")
             exit(1)
 
         print("📤 Verzonden JSON:", json.dumps(json_output, indent=2))
 
-        # ✅ Verstuur resultaten naar webhook
         async with session.post(RESULTS_WEBHOOK, json=json_output) as resp:
             response_text = await resp.text()
             print("📡 Webhook response:", response_text)
