@@ -24,13 +24,11 @@ MIN_WIDTH = 1200
 MIN_HEIGHT = 1200
 BLUR_THRESHOLD = 100
 
-semaphore = asyncio.Semaphore(5)
-
 async def get_urls_from_webhook():
     async with aiohttp.ClientSession() as session:
         async with session.get(URLS_WEBHOOK) as response:
             data = await response.json()
-            print("🔍 Opgehaalde URLs:", json.dumps(data, indent=2))
+            print("\U0001F50D Opgehaalde URLs:", json.dumps(data, indent=2))
             return data.get("urls", [])
 
 async def fetch_image(session, image_url):
@@ -70,7 +68,7 @@ async def is_blurry(image_url, session):
     except Exception as e:
         return {"image_url": image_url, "error": str(e)}
 
-async def analyze_images_on_page(page_url, website_domain, session):
+async def analyze_images_on_page(page_url, website_domain, session, semaphore):
     async with semaphore:
         async with async_playwright() as p:
             browser = await p.chromium.launch(headless=True, args=["--disable-gpu", "--no-sandbox", "--disable-dev-shm-usage"])
@@ -153,7 +151,7 @@ async def analyze_images_on_page(page_url, website_domain, session):
             print(json.dumps(result_data, indent=2))
             try:
                 response = requests.post(GOOGLE_SHEET_WEBHOOK, json=[result_data])
-                print(f"📤 Gegevens verzonden naar Google Sheets: {response.text}")
+                print(f"\U0001F4E4 Gegevens verzonden naar Google Sheets: {response.text}")
             except requests.exceptions.RequestException as e:
                 print(f"❌ Fout bij verzenden naar Google Sheets: {e}")
         else:
@@ -161,15 +159,19 @@ async def analyze_images_on_page(page_url, website_domain, session):
 
 async def main():
     urls = await get_urls_from_webhook()
+    if not urls:
+        print("❌ Geen URLs opgehaald!")
+        return
+
+    semaphore = asyncio.Semaphore(5)
     async with aiohttp.ClientSession() as session:
         tasks = []
         for full_url in urls:
             parsed = urllib.parse.urlparse(full_url)
             domain = parsed.netloc
-            tasks.append(analyze_images_on_page(full_url, domain, session))
+            tasks.append(analyze_images_on_page(full_url, domain, session, semaphore))
         await asyncio.gather(*tasks)
 
-# ✅ Nette afsluiting
 if __name__ == "__main__":
     try:
         asyncio.run(main())
