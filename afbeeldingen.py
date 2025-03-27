@@ -1,85 +1,179 @@
-import aiohttp
 import asyncio
+import requests
+import cv2
+import numpy as np
+import urllib.parse
 import json
-import os
-from bs4 import BeautifulSoup
+import aiohttp
 from playwright.async_api import async_playwright
+from bs4 import BeautifulSoup
+from collections import defaultdict
+from io import BytesIO
+from PIL import Image, UnidentifiedImageError
+import sys
 
 # ✅ Webhooks
-URLS_WEBHOOK = "https://script.google.com/macros/s/AKfycbxHw1J2asNBEdd5LHZj2LqTjwKVsjKufYhMSSeq6nRhY65mTVeuDai_oSt_lWRB_MkE/exec"  # Webhook voor het ophalen van URLs
-RESULTS_WEBHOOK = "https://script.google.com/macros/s/AKfycbwB3HUYBo-pXCl8GvRrGVMPvV-oXsfotRwVKvgI-MxOIwF41zjUAPi-khbT7sVqHN0H/exec"  # Webhook voor het verzenden van resultaten
+URLS_WEBHOOK = "https://script.google.com/macros/s/AKfycbxHw1J2asNBEdd5LHZj2LqTjwKVsjKufYhMSSeq6nRhY65mTVeuDai_oSt_lWRB_MkE/exec"
+GOOGLE_SHEET_WEBHOOK = "https://script.google.com/macros/s/AKfycbzbslfRnutXV1eFziwpXkYEKyowO1i0uzwW9ACXFdCb6GCvMJfu_4FDwGtXHem_Q_Sx/exec"
 
-# ✅ Beperk het aantal gelijktijdige Playwright-verzoeken
-semaphore = asyncio.Semaphore(5)  # Maximaal 5 tegelijk
+# Instellingen
+STANDARD_SIZE = (256, 256)
+PLACEHOLDER_KEYWORDS = ["placeholder", "small_image", "default_image", "no_image"]
+EXCLUDED_DOMAINS = ["storage.googleapis.com"]
+MIN_WIDTH = 1200
+MIN_HEIGHT = 1200
+BLUR_THRESHOLD = 100
 
 async def get_urls_from_webhook():
     async with aiohttp.ClientSession() as session:
         async with session.get(URLS_WEBHOOK) as response:
             data = await response.json()
-            print("🔍 Opgehaalde URLs:", json.dumps(data, indent=2))
+            print("\U0001F50D Opgehaalde URLs:", json.dumps(data, indent=2))
             return data.get("urls", [])
 
-async def scrape_page(session, url):
+async def fetch_image(session, image_url):
+    async with session.get(image_url, timeout=10) as response:
+        response.raise_for_status()
+        return await response.read()
+
+async def is_blurry(image_url, session):
+    if "paypal" in image_url.lower() or "storage.googleapis.com" in image_url:
+        return {
+            "image_url": image_url,
+            "excluded": True
+        }
+
+    try:
+        image_data = await fetch_image(session, image_url)
+        img_array = np.frombuffer(image_data, dtype=np.uint8)
+        image = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
+        if image is None:
+            raise Exception("Image decoding failed")
+
+        height, width = image.shape[:2]
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        laplacian_var = cv2.Laplacian(gray, cv2.CV_64F).var()
+
+        blurry = laplacian_var < BLUR_THRESHOLD
+        too_small = width < MIN_WIDTH or height < MIN_HEIGHT
+
+        return {
+            "image_url": image_url,
+            "width": width,
+            "height": height,
+            "blur_score": round(laplacian_var, 2),
+            "sharpness": "Blurry" if blurry else "Sharp",
+            "resolution_check": "Too Small" if too_small else "OK"
+        }
+    except Exception as e:
+        return {"image_url": image_url, "error": str(e)}
+
+async def analyze_images_on_page(page_url, website_domain, session, semaphore, collected_results):
     async with semaphore:
         async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=True)
-            page = await browser.new_page()
+            browser = await p.chromium.launch(
+                headless=True,
+                args=["--disable-gpu", "--no-sandbox", "--disable-dev-shm-usage"],
+            )
+            context = await browser.new_context(ignore_https_errors=True)
+            page = await context.new_page()
 
             try:
-                await page.goto(url, wait_until="domcontentloaded", timeout=60000)
+                await page.goto(page_url, wait_until="domcontentloaded", timeout=60000)
             except Exception as e:
-                print(f"❌ Fout bij laden van {url}: {e}")
-                await browser.close()
-                return {
-                    "url": url,
-                    "is_target_price": False,
-                    "has_usp": False,
-                    "has_faq": False,
-                    "configurator_app_present": False
-                }
-
-            await page.wait_for_timeout(3000)
-
-            try:
-                await page.wait_for_selector("div.mt-6.w-full.space-y-1", timeout=5000)
-            except:
-                print(f"⚠️ USP-container niet gevonden op {url}")
+                if "ERR_CERT_COMMON_NAME_INVALID" in str(e):
+                    print(f"⚠️ SSL-fout genegeerd op: {page_url}")
+                else:
+                    print(f"❌ Fout bij openen van {page_url}: {e}")
+                    await page.close()
+                    await context.close()
+                    await browser.close()
+                    return
 
             content = await page.content()
-
-            # ✅ Check configurator-app met Playwright direct
-            configurator = await page.query_selector("#configurator-app")
-            has_configurator_app = configurator is not None
-
+            await page.close()
+            await context.close()
             await browser.close()
 
         soup = BeautifulSoup(content, "html.parser")
+        image_tags = soup.find_all("img")
+        image_urls = [img.get("src") for img in image_tags if img.get("src")]
 
-        price_element = soup.find("span", class_="text-4xl font-extrabold")
-        is_target_price = False
-        if price_element:
-            price_text = price_element.get_text(strip=True).replace("€", "").replace(",", ".")
+        absolute_image_urls = []
+        for url in image_urls:
+            if ".svg" in url.lower():
+                continue
+            if website_domain not in url and "cdn" in url:
+                continue
+            if not url.startswith("http"):
+                url = f"https://{website_domain}/{url.lstrip('/')}"
+            absolute_image_urls.append(url)
+
+        broken_images = set()
+        placeholder_images = set()
+        image_arrays = {}
+        blur_tasks = []
+
+        def get_image_array(url):
             try:
-                price_value = float(price_text)
-                is_target_price = price_value in [0.00, 1.00]
-            except ValueError:
-                is_target_price = False
+                response = requests.get(url, stream=True, timeout=10)
+                response.raise_for_status()
+                if any(keyword in url.lower() for keyword in PLACEHOLDER_KEYWORDS):
+                    placeholder_images.add(url)
+                    return None
+                img = Image.open(BytesIO(response.content))
+                img = img.resize(STANDARD_SIZE, Image.LANCZOS)
+                return cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
+            except UnidentifiedImageError:
+                broken_images.add(url)
+                return None
+            except requests.exceptions.RequestException:
+                broken_images.add(url)
+                return None
 
-        usp_container = soup.find("div", class_="mt-6 w-full space-y-1")
-        has_usp = usp_container is not None and usp_container.find("span") is not None
+        for url in absolute_image_urls:
+            image_arrays[url] = get_image_array(url)
+            blur_tasks.append(asyncio.create_task(is_blurry(url, session)))
 
-        vragen_en_antwoorden = (
-            soup.find("div", id="vragen-en-antwoorden") is not None or
-            soup.find("div", class_="w-full h-fit sticky top-0 lg:border lg:border-gray-ultralight rounded-xl lg:p-5 lg:min-h-[350px]") is not None
+        duplicates = defaultdict(set)
+        checked = set()
+        for url1, img1 in image_arrays.items():
+            if img1 is None or any(domain in url1 for domain in EXCLUDED_DOMAINS):
+                continue
+            for url2, img2 in image_arrays.items():
+                if url1 == url2 or (url2, url1) in checked:
+                    continue
+                if img2 is None or any(domain in url2 for domain in EXCLUDED_DOMAINS):
+                    continue
+                diff = cv2.absdiff(img1, img2)
+                if np.sum(diff) == 0:
+                    duplicates[url1].add(url2)
+                    checked.add((url1, url2))
+
+        blurry_results = await asyncio.gather(*blur_tasks)
+
+        result_data = {
+            "url": page_url,
+            "broken": ", ".join(broken_images) if broken_images else "Geen",
+            "placeholder": ", ".join(placeholder_images) if placeholder_images else "Geen",
+            "duplicate": ", ".join({img for dupes in duplicates.values() for img in dupes}) if duplicates else "Geen",
+            "blur_details": blurry_results
+        }
+
+        collected_results.append(result_data)
+
+        # Logging
+        has_issues = (
+            result_data["broken"] != "Geen" or
+            result_data["placeholder"] != "Geen" or
+            result_data["duplicate"] != "Geen" or
+            any(r.get("sharpness") == "Blurry" for r in blurry_results if not r.get("excluded"))
         )
 
-        return {
-            "url": url,
-            "is_target_price": is_target_price,
-            "has_usp": has_usp,
-            "has_faq": vragen_en_antwoorden,
-            "configurator_app_present": has_configurator_app
-        }
+        if has_issues:
+            print(f"⚠️ Problemen gevonden op: {page_url}")
+        else:
+            print(f"✅ Geen problemen op: {page_url}")
 
 async def main():
     urls = await get_urls_from_webhook()
@@ -87,27 +181,53 @@ async def main():
         print("❌ Geen URLs opgehaald!")
         return
 
+    semaphore = asyncio.Semaphore(5)
+    BATCH_SIZE = 10
+    total = len(urls)
+    collected_results = []
+
+    print(f"🔍 Totaal aantal URLs om te controleren: {total}")
+
     async with aiohttp.ClientSession() as session:
-        tasks = [scrape_page(session, url) for url in urls]
-        results = await asyncio.gather(*tasks)
+        for i in range(0, total, BATCH_SIZE):
+            batch = urls[i:i + BATCH_SIZE]
+            tasks = []
 
-        json_output = {
-            "type": "attributen",
-            "data": results
-        }
+            for idx, full_url in enumerate(batch):
+                parsed = urllib.parse.urlparse(full_url)
+                domain = parsed.netloc
+                absolute_index = i + idx + 1
+                print(f"➡️ ({absolute_index}/{total}) Start controle: {full_url}")
 
-        with open("results.json", "w") as f:
-            json.dump(json_output, f, indent=2)
+                task = asyncio.wait_for(
+                    analyze_images_on_page(full_url, domain, session, semaphore, collected_results),
+                    timeout=120
+                )
+                tasks.append(task)
 
-        if not os.path.exists("results.json"):
-            print("❌ results.json is niet gegenereerd! Controleer scraper.")
-            exit(1)
+            try:
+                await asyncio.gather(*tasks)
+            except asyncio.TimeoutError as e:
+                print(f"⏰ Timeout in batch {i // BATCH_SIZE + 1}: {e}")
 
-        print("📤 Verzonden JSON:", json.dumps(json_output, indent=2))
+            print(f"✅ Batch {i // BATCH_SIZE + 1} afgerond.\n")
 
-        async with session.post(RESULTS_WEBHOOK, json=json_output) as resp:
-            response_text = await resp.text()
-            print("📡 Webhook response:", response_text)
+    if collected_results:
+        try:
+            response = requests.post(GOOGLE_SHEET_WEBHOOK, json=collected_results)
+            print(f"\n📨 Verzonden naar Google Sheets ({len(collected_results)} items): {response.text}")
+        except requests.exceptions.RequestException as e:
+            print(f"❌ Fout bij verzenden naar Google Sheets: {e}")
+    else:
+        print("✅ Geen resultaten om te verzenden.")
+
+    print("🏁 Alle batches verwerkt.")
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+        print("✅ Script succesvol afgerond.")
+        sys.exit(0)
+    except Exception as e:
+        print(f"❌ Fout tijdens uitvoeren: {e}")
+        sys.exit(1)
