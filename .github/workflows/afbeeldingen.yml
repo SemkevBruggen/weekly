@@ -1,7 +1,9 @@
 name: Image Check Automation
 
 on:
-  workflow_dispatch:  # ✅ Handmatige uitvoering via GitHub Actions UI
+  workflow_dispatch:        # ✅ Handmatig starten mogelijk via GitHub
+  schedule:
+    - cron: '0 6 * * 1'     # ✅ Elke maandag om 06:00 UTC (07:00 NL-tijd in winter)
 
 jobs:
   run-image-check:
