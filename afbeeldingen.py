@@ -14,7 +14,7 @@ import sys
 
 # ✅ Webhooks
 URLS_WEBHOOK = "https://script.google.com/macros/s/AKfycbxHw1J2asNBEdd5LHZj2LqTjwKVsjKufYhMSSeq6nRhY65mTVeuDai_oSt_lWRB_MkE/exec"
-GOOGLE_SHEET_WEBHOOK = "https://script.google.com/macros/s/AKfycbz9xgvDS-MU6bZ7SxGibFq-DeEJr8WUVteD6WiEUEuQ8W5TDjXFrRAhmT0x19kSqZVz/exec"
+GOOGLE_SHEET_WEBHOOK = "https://script.google.com/macros/s/AKfycby3_Z_4jb77KuXqsEALGeIbU2Pg7-dXPl2Lvv0dHk2K7rAmxGgl47ItVKDEX4rzMtCS/exec"
 
 # Instellingen
 STANDARD_SIZE = (256, 256)
@@ -68,15 +68,31 @@ async def is_blurry(image_url, session):
     except Exception as e:
         return {"image_url": image_url, "error": str(e)}
 
-async def analyze_images_on_page(page_url, website_domain, session, semaphore):
+async def analyze_images_on_page(page_url, website_domain, session, semaphore, collected_results):
     async with semaphore:
         async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=True, args=["--disable-gpu", "--no-sandbox", "--disable-dev-shm-usage"])
-            page = await browser.new_page()
-            await page.goto(page_url, wait_until="domcontentloaded", timeout=60000)
+            browser = await p.chromium.launch(
+                headless=True,
+                args=["--disable-gpu", "--no-sandbox", "--disable-dev-shm-usage"],
+            )
+            context = await browser.new_context(ignore_https_errors=True)
+            page = await context.new_page()
+
+            try:
+                await page.goto(page_url, wait_until="domcontentloaded", timeout=60000)
+            except Exception as e:
+                if "ERR_CERT_COMMON_NAME_INVALID" in str(e):
+                    print(f"⚠️ SSL-fout genegeerd op: {page_url}")
+                else:
+                    print(f"❌ Fout bij openen van {page_url}: {e}")
+                    await page.close()
+                    await context.close()
+                    await browser.close()
+                    return
 
             content = await page.content()
             await page.close()
+            await context.close()
             await browser.close()
 
         soup = BeautifulSoup(content, "html.parser")
@@ -136,27 +152,29 @@ async def analyze_images_on_page(page_url, website_domain, session, semaphore):
 
         blurry_results = await asyncio.gather(*blur_tasks)
 
-        if broken_images or placeholder_images or duplicates or any(
-            'Blurry' in r.get('sharpness', '') or 'Too Small' in r.get('resolution_check', '')
-            for r in blurry_results if not r.get("excluded")
-        ):
-            result_data = {
-                "url": page_url,
-                "broken": ", ".join(broken_images) if broken_images else "Geen",
-                "placeholder": ", ".join(placeholder_images) if placeholder_images else "Geen",
-                "duplicate": ", ".join({img for dupes in duplicates.values() for img in dupes}) if duplicates else "Geen",
-                "blur_details": blurry_results
-            }
-            print(json.dumps(result_data, indent=2))
-            try:
-                response = requests.post(GOOGLE_SHEET_WEBHOOK, json=[result_data])
-                print(f"\U0001F4E4 Gegevens verzonden naar Google Sheets: {response.text}")
-            except requests.exceptions.RequestException as e:
-                print(f"❌ Fout bij verzenden naar Google Sheets: {e}")
-        else:
-            print(f"✅ Geen problemen gevonden op {page_url}, niet verzonden naar Google Sheets.")
+        result_data = {
+            "url": page_url,
+            "broken": ", ".join(broken_images) if broken_images else "Geen",
+            "placeholder": ", ".join(placeholder_images) if placeholder_images else "Geen",
+            "duplicate": ", ".join({img for dupes in duplicates.values() for img in dupes}) if duplicates else "Geen",
+            "blur_details": blurry_results
+        }
 
-# ✅ Aangepaste main() met batching en logging
+        collected_results.append(result_data)
+
+        # Logging
+        has_issues = (
+            result_data["broken"] != "Geen" or
+            result_data["placeholder"] != "Geen" or
+            result_data["duplicate"] != "Geen" or
+            any(r.get("sharpness") == "Blurry" for r in blurry_results if not r.get("excluded"))
+        )
+
+        if has_issues:
+            print(f"⚠️ Problemen gevonden op: {page_url}")
+        else:
+            print(f"✅ Geen problemen op: {page_url}")
+
 async def main():
     urls = await get_urls_from_webhook()
     if not urls:
@@ -166,6 +184,7 @@ async def main():
     semaphore = asyncio.Semaphore(5)
     BATCH_SIZE = 10
     total = len(urls)
+    collected_results = []
 
     print(f"🔍 Totaal aantal URLs om te controleren: {total}")
 
@@ -179,10 +198,28 @@ async def main():
                 domain = parsed.netloc
                 absolute_index = i + idx + 1
                 print(f"➡️ ({absolute_index}/{total}) Start controle: {full_url}")
-                tasks.append(analyze_images_on_page(full_url, domain, session, semaphore))
 
-            await asyncio.gather(*tasks)
+                task = asyncio.wait_for(
+                    analyze_images_on_page(full_url, domain, session, semaphore, collected_results),
+                    timeout=120
+                )
+                tasks.append(task)
+
+            try:
+                await asyncio.gather(*tasks)
+            except asyncio.TimeoutError as e:
+                print(f"⏰ Timeout in batch {i // BATCH_SIZE + 1}: {e}")
+
             print(f"✅ Batch {i // BATCH_SIZE + 1} afgerond.\n")
+
+    if collected_results:
+        try:
+            response = requests.post(GOOGLE_SHEET_WEBHOOK, json=collected_results)
+            print(f"\n📨 Verzonden naar Google Sheets ({len(collected_results)} items): {response.text}")
+        except requests.exceptions.RequestException as e:
+            print(f"❌ Fout bij verzenden naar Google Sheets: {e}")
+    else:
+        print("✅ Geen resultaten om te verzenden.")
 
     print("🏁 Alle batches verwerkt.")
 
