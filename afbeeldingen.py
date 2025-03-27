@@ -156,20 +156,35 @@ async def analyze_images_on_page(page_url, website_domain, session, semaphore):
         else:
             print(f"✅ Geen problemen gevonden op {page_url}, niet verzonden naar Google Sheets.")
 
+# ✅ Aangepaste main() met batching en logging
 async def main():
     urls = await get_urls_from_webhook()
     if not urls:
         print("❌ Geen URLs opgehaald!")
         return
 
-    semaphore = asyncio.Semaphore(5)  # ✅ Teruggeplaatst limiet
+    semaphore = asyncio.Semaphore(5)
+    BATCH_SIZE = 10
+    total = len(urls)
+
+    print(f"🔍 Totaal aantal URLs om te controleren: {total}")
+
     async with aiohttp.ClientSession() as session:
-        tasks = []
-        for full_url in urls:
-            parsed = urllib.parse.urlparse(full_url)
-            domain = parsed.netloc
-            tasks.append(analyze_images_on_page(full_url, domain, session, semaphore))
-        await asyncio.gather(*tasks)
+        for i in range(0, total, BATCH_SIZE):
+            batch = urls[i:i + BATCH_SIZE]
+            tasks = []
+
+            for idx, full_url in enumerate(batch):
+                parsed = urllib.parse.urlparse(full_url)
+                domain = parsed.netloc
+                absolute_index = i + idx + 1
+                print(f"➡️ ({absolute_index}/{total}) Start controle: {full_url}")
+                tasks.append(analyze_images_on_page(full_url, domain, session, semaphore))
+
+            await asyncio.gather(*tasks)
+            print(f"✅ Batch {i // BATCH_SIZE + 1} afgerond.\n")
+
+    print("🏁 Alle batches verwerkt.")
 
 if __name__ == "__main__":
     try:
