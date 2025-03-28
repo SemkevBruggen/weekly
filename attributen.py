@@ -6,11 +6,11 @@ from bs4 import BeautifulSoup
 from playwright.async_api import async_playwright
 
 # ✅ Webhooks
-URLS_WEBHOOK = "https://script.google.com/macros/s/AKfycbxHw1J2asNBEdd5LHZj2LqTjwKVsjKufYhMSSeq6nRhY65mTVeuDai_oSt_lWRB_MkE/exec"  # Webhook voor het ophalen van URLs
-RESULTS_WEBHOOK = "https://script.google.com/macros/s/AKfycbwB3HUYBo-pXCl8GvRrGVMPvV-oXsfotRwVKvgI-MxOIwF41zjUAPi-khbT7sVqHN0H/exec"  # Webhook voor het verzenden van resultaten
+URLS_WEBHOOK = "https://script.google.com/macros/s/AKfycbxHw1J2asNBEdd5LHZj2LqTjwKVsjKufYhMSSeq6nRhY65mTVeuDai_oSt_lWRB_MkE/exec"
+RESULTS_WEBHOOK = "https://script.google.com/macros/s/AKfycbzx2A2d2WG7k79k2PugXoTjJvMxifAzgXPqfYJWgiWMwG2USMpMJZaC-A32oDlQW0F1/exec"
 
-# ✅ Beperk het aantal gelijktijdige Playwright-verzoeken
-semaphore = asyncio.Semaphore(5)  # Maximaal 5 tegelijk
+# ✅ Max 5 tegelijk
+semaphore = asyncio.Semaphore(5)
 
 async def get_urls_from_webhook():
     async with aiohttp.ClientSession() as session:
@@ -45,12 +45,15 @@ async def scrape_page(session, url):
             except:
                 print(f"⚠️ USP-container niet gevonden op {url}")
 
+            # ✅ Wacht op configurator-app die zichtbaar is
+            try:
+                await page.wait_for_selector("#configurator-app", timeout=10000, state="visible")
+                has_configurator_app = True
+            except:
+                print(f"⚠️ Configurator-app niet zichtbaar gevonden op {url}")
+                has_configurator_app = False
+
             content = await page.content()
-
-            # ✅ Check configurator-app met Playwright direct
-            configurator = await page.query_selector("#configurator-app")
-            has_configurator_app = configurator is not None
-
             await browser.close()
 
         soup = BeautifulSoup(content, "html.parser")
